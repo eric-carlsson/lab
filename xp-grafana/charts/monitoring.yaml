@@ -1,0 +1,328 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: open-telemetry
+spec:
+  interval: 6h
+  url: https://open-telemetry.github.io/opentelemetry-helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opentelemetry-collector-nodes
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: "0.126.*"
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+  releaseName: opentelemetry-collector-nodes
+  targetNamespace: monitoring
+  dependsOn:
+    - name: crossplane
+  values:
+    mode: daemonset
+    image:
+      repository: otel/opentelemetry-collector-k8s
+    presets:
+      kubernetesAttributes:
+        enabled: true
+      kubeletMetrics:
+        enabled: true
+      logsCollection:
+        enabled: true
+    config:
+      exporters:
+        otlphttp/metrics:
+          endpoint: http://prometheus-server/api/v1/otlp
+        otlphttp/logs:
+          endpoint: http://loki:3100/otlp
+      service:
+        pipelines:
+          metrics:
+            exporters:
+              - otlphttp/metrics
+              - debug
+          logs:
+            exporters:
+              - otlphttp/logs
+              - debug
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opentelemetry-collector-cluster
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: "0.126.*"
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+  releaseName: opentelemetry-collector-cluster
+  targetNamespace: monitoring
+  values:
+    mode: deployment
+    replicaCount: 1 # Single replica to prevent duplicate data
+    image:
+      repository: otel/opentelemetry-collector-k8s
+    presets:
+      clusterMetrics:
+        enabled: true
+      kubernetesEvents:
+        enabled: true
+    clusterRole:
+      rules:
+        - apiGroups:
+            - example.com
+          resources:
+            - "*"
+          verbs:
+            - get
+            - list
+            - watch
+    config:
+      service:
+        pipelines:
+          metrics:
+            exporters:
+              - otlphttp/metrics
+          logs:
+            processors:
+              - memory_limiter
+              - batch
+              - transform
+            exporters:
+              - otlphttp/logs
+              - debug
+      receivers:
+        k8sobjects:
+          objects:
+            - name: events
+              group: events.k8s.io
+              mode: watch
+              exclude_watch_type:
+                - DELETED
+            - name: robots
+              group: example.com
+              mode: pull
+            - name: circuits
+              group: example.com
+              mode: pull
+            - name: grids
+              group: example.com
+              mode: pull
+      exporters:
+        otlphttp/metrics:
+          endpoint: http://prometheus-server/api/v1/otlp
+        otlphttp/logs:
+          endpoint: http://loki:3100/otlp
+      processors:
+        transform:
+          error_mode: ignore
+          log_statements:
+            - set(resource.attributes["service.name"], "k8sobjects")
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+spec:
+  interval: 6h
+  url: https://prometheus-community.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: prometheus
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: prometheus
+      version: "27.20.*"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+  releaseName: prometheus
+  targetNamespace: monitoring
+  install:
+    crds: Skip
+  upgrade:
+    crds: Skip
+  values:
+    alertmanager:
+      enabled: false
+    kube-state-metrics:
+      enabled: false
+    prometheus-node-exporter:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+    server:
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+      extraFlags:
+        - web.enable-lifecycle
+        - web.enable-otlp-receiver
+    serverFiles:
+      prometheus.yml:
+        scrape_configs:
+          - job_name: prometheus
+            static_configs:
+              - targets:
+                  - localhost:9090
+        otlp:
+          promote_resource_attributes:
+            - service.instance.id
+            - service.name
+            - service.namespace
+            - cloud.availability_zone
+            - cloud.region
+            - container.name
+            - deployment.environment.name
+            - k8s.cluster.name
+            - k8s.container.name
+            - k8s.cronjob.name
+            - k8s.daemonset.name
+            - k8s.deployment.name
+            - k8s.job.name
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.replicaset.name
+            - k8s.statefulset.name
+    configmapReload:
+      prometheus:
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+spec:
+  interval: 6h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: loki
+      version: "6.30.*"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+  releaseName: loki
+  targetNamespace: monitoring
+  install:
+    crds: Skip
+  upgrade:
+    crds: Skip
+  values:
+    loki:
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      limits_config:
+        allow_structured_metadata: true
+        # otlp_config:
+        #   resource_attributes:
+        #     attributes_config:
+        #       - action: index_label
+        #         attributes:
+        #           - k8s.resource.name
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      auth_enabled: false
+    deploymentMode: SingleBinary
+    singleBinary:
+      replicas: 1
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    ingester:
+      replicas: 0
+    querier:
+      replicas: 0
+    queryFrontend:
+      replicas: 0
+    queryScheduler:
+      replicas: 0
+    distributor:
+      replicas: 0
+    compactor:
+      replicas: 0
+    indexGateway:
+      replicas: 0
+    bloomCompactor:
+      replicas: 0
+    bloomGateway:
+      replicas: 0
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    gateway:
+      enabled: false
+    sidecar:
+      rules:
+        enabled: false
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: grafana
+      version: "9.2.*"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+  releaseName: grafana
+  targetNamespace: monitoring
+  values:
+    grafana.ini:
+      auth:
+        disable_login_form: true
+      auth.anonymous:
+        enabled: true
+        org_role: Admin
+      auth.basic:
+        enabled: false
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            url: http://prometheus-server
+            access: proxy
+            isDefault: true
+          - name: Loki
+            type: loki
+            url: http://loki:3100
+            access: proxy

@@ -1,0 +1,80 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xcircuits.example.com
+spec:
+  group: example.com
+  names:
+    kind: XCircuit
+    plural: xcircuits
+  claimNames:
+    kind: Circuit
+    plural: circuits
+  versions:
+    - name: v1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A circuit of robots. Sort of like a murder of crows.
+          properties:
+            spec:
+              description: Circuit specification.
+              type: object
+              required:
+                - parameters
+              properties:
+                parameters:
+                  description: User-provided parameters.
+                  type: object
+                  required:
+                    - robots
+                  properties:
+                    robots:
+                      type: array
+                      description: List of robots in the circuit.
+                      items:
+                        type: object
+                        required:
+                          - color
+                        properties:
+                          color:
+                            type: string
+                            description: Color of the robot.
+                            default: silver
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: circuit.example.com
+spec:
+  compositeTypeRef:
+    apiVersion: example.com/v1
+    kind: XCircuit
+  mode: Pipeline
+  pipeline:
+    - step: create-robots
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := getCompositeResource . }}
+            {{- range $i, $robot := $xr.spec.parameters.robots }}
+            ---
+            apiVersion: iam.dummy.upbound.io/v1alpha1
+            kind: Robot
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation (printf "robot-%d" $i) }}
+            spec:
+              forProvider:
+                color: {{ $robot.color }}
+            {{- end }}
+    - step: auto-mark-ready
+      functionRef:
+        name: function-auto-ready

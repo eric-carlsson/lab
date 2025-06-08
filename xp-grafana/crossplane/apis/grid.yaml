@@ -1,0 +1,91 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xgrids.example.com
+spec:
+  group: example.com
+  names:
+    kind: XGrid
+    plural: xgrids
+  claimNames:
+    kind: Grid
+    plural: grids
+  versions:
+    - name: v1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A grid of circuits.
+          properties:
+            spec:
+              description: Grid specification.
+              type: object
+              required:
+                - parameters
+              properties:
+                parameters:
+                  description: User-provided parameters.
+                  type: object
+                  required:
+                    - circuits
+                  properties:
+                    circuits:
+                      type: array
+                      description: List of circuits in the grid.
+                      items:
+                        type: object
+                        required:
+                          - robots
+                        properties:
+                          robots:
+                            type: array
+                            description: List of robots in the circuit.
+                            items:
+                              type: object
+                              required:
+                                - color
+                              properties:
+                                color:
+                                  type: string
+                                  description: Color of the robot.
+                                  default: silver
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: grid.example.com
+spec:
+  compositeTypeRef:
+    apiVersion: example.com/v1
+    kind: XGrid
+  mode: Pipeline
+  pipeline:
+    - step: create-circuits
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := getCompositeResource . }}
+            {{- range $i, $circuit := $xr.spec.parameters.circuits }}
+            ---
+            apiVersion: example.com/v1
+            kind: XCircuit
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation (printf "circuit-%d" $i) }}
+            spec:
+              parameters:
+                robots:
+                  {{- range $j, $robot := $circuit.robots }}
+                  - color: {{ $robot.color }}
+                  {{- end }}
+            {{- end }}
+    - step: auto-mark-ready
+      functionRef:
+        name: function-auto-ready

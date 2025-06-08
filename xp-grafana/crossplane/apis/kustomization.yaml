@@ -1,0 +1,4 @@
+resources:
+  - circuit.yaml
+  - grid.yaml
+  - robot.yaml

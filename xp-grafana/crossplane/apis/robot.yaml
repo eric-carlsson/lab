@@ -1,0 +1,69 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xrobots.example.com
+spec:
+  group: example.com
+  names:
+    kind: XRobot
+    plural: xrobots
+  claimNames:
+    kind: Robot
+    plural: robots
+  versions:
+    - name: v1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Just a lonely robot.
+          properties:
+            spec:
+              description: Robot specification.
+              type: object
+              required:
+                - parameters
+              properties:
+                parameters:
+                  description: User-provided parameters.
+                  type: object
+                  required:
+                  properties:
+                    color:
+                      type: string
+                      description: Color of the robot.
+                      default: silver
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: robot.example.com
+spec:
+  compositeTypeRef:
+    apiVersion: example.com/v1
+    kind: XRobot
+  mode: Pipeline
+  pipeline:
+    - step: create-robot
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $xr := getCompositeResource . }}
+            ---
+            apiVersion: iam.dummy.upbound.io/v1alpha1
+            kind: Robot
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "robot" }}
+            spec:
+              forProvider:
+                color: {{ $xr.spec.parameters.color }}
+    - step: auto-mark-ready
+      functionRef:
+        name: function-auto-ready

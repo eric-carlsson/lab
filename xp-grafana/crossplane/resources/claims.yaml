@@ -1,0 +1,113 @@
+apiVersion: example.com/v1
+kind: Robot
+metadata:
+  name: silver-bot
+  namespace: robot-party
+spec:
+  parameters:
+    color: silver
+---
+apiVersion: example.com/v1
+kind: Robot
+metadata:
+  name: blue-bot
+  namespace: robot-party
+spec:
+  parameters:
+    color: blue
+---
+apiVersion: example.com/v1
+kind: Circuit
+metadata:
+  name: duo-circuit
+  namespace: robot-party
+spec:
+  parameters:
+    robots:
+      - color: red
+      - color: green
+---
+apiVersion: example.com/v1
+kind: Circuit
+metadata:
+  name: trio-circuit
+  namespace: robot-party
+spec:
+  parameters:
+    robots:
+      - color: gold
+      - color: silver
+      - color: blue
+---
+apiVersion: example.com/v1
+kind: Grid
+metadata:
+  name: mega-grid
+  namespace: robot-party
+spec:
+  parameters:
+    circuits:
+      - robots:
+          - color: silver
+          - color: blue
+      - robots:
+          - color: red
+          - color: green
+          - color: gold
+---
+apiVersion: example.com/v1
+kind: Robot
+metadata:
+  name: carnival-bot
+  namespace: robot-carnival
+spec:
+  parameters:
+    color: purple
+---
+apiVersion: example.com/v1
+kind: Robot
+metadata:
+  name: neon-bot
+  namespace: robot-carnival
+spec:
+  parameters:
+    color: neon
+---
+apiVersion: example.com/v1
+kind: Circuit
+metadata:
+  name: funhouse-circuit
+  namespace: robot-carnival
+spec:
+  parameters:
+    robots:
+      - color: orange
+      - color: teal
+---
+apiVersion: example.com/v1
+kind: Circuit
+metadata:
+  name: parade-circuit
+  namespace: robot-carnival
+spec:
+  parameters:
+    robots:
+      - color: pink
+      - color: yellow
+      - color: cyan
+---
+apiVersion: example.com/v1
+kind: Grid
+metadata:
+  name: carnival-grid
+  namespace: robot-carnival
+spec:
+  parameters:
+    circuits:
+      - robots:
+          - color: purple
+          - color: neon
+      - robots:
+          - color: orange
+          - color: teal
+          - color: pink
