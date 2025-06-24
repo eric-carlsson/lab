@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opensearch
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: opensearch
+spec:
+  interval: 6h
+  url: https://opensearch-project.github.io/helm-charts/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opensearch
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: opensearch
+      version: "3.0.*"
+      sourceRef:
+        kind: HelmRepository
+        name: opensearch
+  releaseName: opensearch
+  targetNamespace: opensearch
+  values:
+    config:
+      opensearch.yml: |
+        network.host: 0.0.0.0
+        plugins:
+          security:
+            disabled: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opensearch-dashboards
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: opensearch-dashboards
+      version: "3.0.*"
+      sourceRef:
+        kind: HelmRepository
+        name: opensearch
+  releaseName: opensearch-dashboards
+  targetNamespace: opensearch
+  values:
+    opensearchHosts: http://opensearch-cluster-master:9200
+    extraEnvs:
+      - name: "DISABLE_SECURITY_DASHBOARDS_PLUGIN"
+        value: "true"
+    config:
+      opensearch_dashboards.yml: |-
+        workspace.enabled: true
+        uiSettings:
+          overrides:
+            "home:useNewHomePage": true

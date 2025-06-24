@@ -1,0 +1,106 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: open-telemetry
+spec:
+  interval: 6h
+  url: https://open-telemetry.github.io/opentelemetry-helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opentelemetry-collector-nodes
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: "0.126.*"
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+  releaseName: opentelemetry-collector-nodes
+  targetNamespace: opensearch
+  values:
+    mode: daemonset
+    image:
+      repository: otel/opentelemetry-collector-k8s
+    presets:
+      kubernetesAttributes:
+        enabled: true
+      kubeletMetrics:
+        enabled: true
+      logsCollection:
+        enabled: true
+    config:
+      receivers:
+        kubeletstats:
+          insecure_skip_verify: true
+      exporters:
+        otlp/metrics:
+          endpoint: http://opensearch-data-prepper:21891
+          tls:
+            insecure: true
+        otlp/logs:
+          endpoint: http://opensearch-data-prepper:21892
+          tls:
+            insecure: true
+      service:
+        pipelines:
+          metrics:
+            exporters:
+              - otlp/metrics
+              - debug
+          logs:
+            exporters:
+              - otlp/logs
+              - debug
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opensearch-data-prepper
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: data-prepper
+      version: "0.3.*"
+      sourceRef:
+        kind: HelmRepository
+        name: opensearch
+  releaseName: opensearch-data-prepper
+  targetNamespace: opensearch
+  values:
+    pipelineConfig:
+      enabled: true
+      config:
+        metrics-pipeline:
+          source:
+            otel_metrics_source:
+              ssl: false
+          processor:
+            - otel_metrics:
+                calculate_histogram_buckets: true
+                calculate_exponential_histogram_buckets: true
+                exponential_histogram_max_allowed_scale: 10
+                flatten_attributes: false
+          sink:
+            - opensearch:
+                hosts:
+                  - http://opensearch-cluster-master:9200
+                insecure: true
+                index_type: custom
+                index: ss4o_metrics-otel-%{yyyy.MM.dd}
+                template_type: index-template
+        logs-pipeline:
+          source:
+            otel_logs_source:
+              ssl: false
+          sink:
+            - opensearch:
+                hosts:
+                  - http://opensearch-cluster-master:9200
+                insecure: true
+                index_type: custom
+                index: otel-events-%{yyyy.MM.dd}
